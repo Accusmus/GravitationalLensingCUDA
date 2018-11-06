@@ -20,6 +20,13 @@ const float XL2 =  WL;
 const float YL1 = -WL;
 const float YL2 =  WL;
 
+// Source star parameters. You can adjust these if you like - it is
+// interesting to look at the different lens images that result
+const float rsrc = 0.1;      // radius
+const float ldc  = 0.5;      // limb darkening coefficient
+const float xsrc = 0.0;      // x and y centre on the map
+const float ysrc = 0.0;
+
 // Used to time code. OK for single threaded programs but not for
 // multithreaded programs. See other demos for hints at timing CUDA
 // code.
@@ -38,60 +45,44 @@ void err_check(cudaError_t err){
 
 // Kernel that executes on the CUDA device. This is executed by ONE
 // stream processor
-__global__ void ray_shoot(int maxX, int maxY, float rsrc, float ldc, float xsrc, float ysrc, float lens_scale, float *xlens, float *ylens, float*eps, int num_lenses, float *dev_arr)
+__global__ void ray_shoot(int *maxX, int *maxY, float *lens_scale, float *xlens, float *ylens, float*eps, int *num_lenses, float *dev_arr)
 {
 	int threadBlockPos = (blockIdx.x * blockDim.x) + threadIdx.x;
 
-	int y = threadBlockPos / maxY;
-	int x = threadBlockPos - (maxX * y);
+	int y = threadBlockPos / (*maxY);
+	int x = threadBlockPos - ((*maxX) * y);
 
-	const float rsrc2 = rsrc * rsrc; 
+	if(threadBlockPos < ((*maxX) * (*maxY))){
+		const float rsrc2 = rsrc * rsrc; 
 
-	float xl = XL1 + x * lens_scale;
-	float yl = YL1 + y * lens_scale; 
-	float xs = XL2 + x * lens_scale; 
-	float ys = YL2 + y * lens_scale;
+		float xl = XL1 + x * (*lens_scale);
+		float yl = YL1 + y * (*lens_scale); 
+		float xs = XL2 + x * (*lens_scale); 
+		float ys = YL2 + y * (*lens_scale);
 
-	float dx, dy, dr;
+		float dx, dy, dr;
 
-	xs = xl; 
-	ys = yl;
+		xs = xl; 
+		ys = yl;
 
-	for(int p = 0; p < num_lenses; ++p){
-		dx = xl - xlens[p];
-	    dy = yl - ylens[p];
-	    dr = dx * dx + dy * dy;
-	    xs -= eps[p] * dx / dr;
-	    ys -= eps[p] * dy / dr;
+		for(int p = 0; p < (*num_lenses); ++p){
+			dx = xl - xlens[p];
+		    dy = yl - ylens[p];
+		    dr = dx * dx + dy * dy;
+		    xs -= eps[p] * dx / dr;
+		    ys -= eps[p] * dy / dr;
+		}
+
+		float xd = xs - xsrc; 
+		float yd = ys - ysrc; 
+		float sep2 = xd * xd + yd * yd; 
+		
+		if(sep2 < rsrc2){
+			float mu = sqrt(1-sep2/rsrc2); 
+			dev_arr[(y*(*maxX)) + x] = (float)1.0;
+		}
+		dev_arr[(y*(*maxX)) + x] = rsrc2;
 	}
-
-	float xd = xs - xsrc; 
-	float yd = ys - ysrc; 
-	float sep2 = xd * xd + yd * yd; 
-	if(sep2 < rsrc2){
-		float mu = sqrt(1-sep2/rsrc2); 
-		//somehow need to copy the info into an array which is then sent back to the host memeory
-		dev_arr[(y*maxX) + x] = 1 - ldc * (1-mu);
-		//std::cout << dev_arr[(y*maxX) + x] << std::endl;
-		//dev_lensim(y, x) = 1.0 - ldc * (1-mu);
-	}
-
-	// Source star parameters. You can adjust these if you like - it is
-	// interesting to look at the different lens images that result
-	//const float rsrc = 0.1;      // radius
-	//const float ldc  = 0.5;      // limb darkening coefficient
-	//const float xsrc = 0.0;      // x and y centre on the map
-	//const float ysrc = 0.0;
-
-	//const float rsrc2 = rsrc * rsrc;
-
-	//int x = blockDim.x * blockIdx.x + threadIdx.x;
-	//int y = blockDim.y * blockIdx.y + threadIdx.y;
-
-
-	//XL1, YL1, XL2, YL2
-	//ix, iy (based on x and y)
-	//xlens, ylens, eps, nlenses
 }
 
 // main routine that executes on the host
@@ -107,12 +98,6 @@ int main(void)
 	const int nlenses = set_example_1(&xlens, &ylens, &eps);
 	std::cout << "# Simulating " << nlenses << " lens system" << std::endl;
 
-	// Source star parameters. You can adjust these if you like - it is
-	// interesting to look at the different lens images that result
-	const float rsrc = 0.1;      // radius
-	const float ldc  = 0.5;      // limb darkening coefficient
-	const float xsrc = 0.0;      // x and y centre on the map
-	const float ysrc = 0.0;
 
 	// Pixel size in physical units of the lens image. You can try finer
 	// lens scale which will result in larger images (and take more
@@ -147,31 +132,34 @@ int main(void)
 	//cuda part
 	//==========================
 
+	int *dev_npixx;
+	int *dev_npixy;
+	float *dev_lens_scale;
 	float *dev_xlens;
 	float *dev_ylens; 
 	float *dev_eps;
+	int *dev_nlenses;
 	float *dev_arr_lensim;
+
 	int size = sizeof(float) * nlenses;
 
-	
+	cudaMalloc((void**)&dev_npixx, sizeof(int));
+	cudaMalloc((void**)&dev_npixy, sizeof(int));
+	cudaMalloc((void**)&dev_lens_scale, sizeof(float));
+	cudaMalloc((void**)&dev_xlens, size);
+	cudaMalloc((void**)&dev_ylens, size);
+	cudaMalloc((void**)&dev_eps, size);
+	cudaMalloc((void**)&dev_nlenses, sizeof(int));
+	cudaMalloc((void**)&dev_arr_lensim, sizeof(float)*npixx*npixy);
 
-	cudaError_t err = cudaMalloc((void**)&dev_xlens, size);
-	err_check(err);
-	err = cudaMalloc((void**)&dev_ylens, size);
-	err_check(err);
-	err = cudaMalloc((void**)&dev_eps, size);
-	err_check(err);
-	err = cudaMalloc((void**)&dev_arr_lensim, sizeof(float)*npixx*npixy);
-	err_check(err);
-
-	err = cudaMemcpy(dev_xlens, xlens, size, cudaMemcpyHostToDevice);
-	err_check(err);
-	err = cudaMemcpy(dev_ylens, ylens, size, cudaMemcpyHostToDevice);
-	err_check(err);
-	err = cudaMemcpy(dev_eps, eps, size, cudaMemcpyHostToDevice);
-	err_check(err);
-	err = cudaMemcpy(dev_arr_lensim, arr_lensim, sizeof(float)*npixx*npixy, cudaMemcpyHostToDevice);
-	err_check(err);
+	cudaMemcpy(dev_npixx, &npixx, sizeof(int), cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_npixy, &npixy, sizeof(int), cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_lens_scale, &lens_scale, sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_xlens, xlens, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_ylens, ylens, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_eps, eps, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_nlenses, &nlenses, sizeof(int), cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_arr_lensim, arr_lensim, sizeof(float)*npixx*npixy, cudaMemcpyHostToDevice);
 
 	//=====================================
 	//=====================================
@@ -179,21 +167,20 @@ int main(void)
 	
 	//mem alloc maxX and maxY and then add to the function below
 	//int maxX, int maxY, float rsrc, float ldc, float xsrc, float ysrc, float lens_scale, float *xlens, float *ylens, float*eps, int num_lenses
-	ray_shoot<<<numBlocks, threadsPerBlock>>>(npixx, npixy, rsrc, ldc, xsrc, ysrc, lens_scale, dev_xlens, dev_ylens, dev_eps, nlenses, dev_arr_lensim);
+	ray_shoot<<<numBlocks, threadsPerBlock>>>(dev_npixx, dev_npixy, dev_lens_scale, dev_xlens, dev_ylens, dev_eps, dev_nlenses, dev_arr_lensim);
+
+	cudaMemcpy(arr_lensim, dev_arr_lensim, sizeof(float)*npixx*npixy, cudaMemcpyDeviceToHost);
 
 
-	err = cudaMemcpy(arr_lensim, dev_arr_lensim, sizeof(float)*npixx*npixy, cudaMemcpyDeviceToHost);
-	err_check(err);
-
-
-	// for(int y = 0; y < npixy; y++){
-	// 	for(int x = 0; x < npixx; x++){
-	// 		//if(arr_lensim[(y*npixy)+x] != 0.0){
-	// 			std::cout << arr_lensim[(y*npixx) + x] << " ";
-	// 		//}
-	// 	}
-	// 	//std::cout << std::endl;
-	// }
+	for(int y = 0; y < npixy; y++){
+		for(int x = 0; x < npixx; x++){
+			if(arr_lensim[(y*npixy)+x] != 0.0){
+				std::cout << arr_lensim[(y*npixx) + x] << " ";
+				//std::cout << (y*npixx) + x << " ";
+			}
+		}
+		//std::cout << std::endl;
+	}
 
 	cudaFree(dev_xlens); 
 	cudaFree(dev_ylens); 
