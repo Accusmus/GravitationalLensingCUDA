@@ -1,0 +1,37 @@
+159735 Assignment 4 startup package
+-----------------------------------
+
+This contains utilities similar to those used in Assignment 3. Do not modify 
+array.hxx, arrayff.hxx, fits.hxx, fitsfile.h, fitsfile.cpp, lenses.h, or 
+lenses.cpp.
+
+1 - First make sure you have the cfitsio library and ds9 installed on your 
+system (as you did with Assignment 3)
+
+2 - Then build the start up package as follows:
+
+Save the file lensing.tar to somewhere in your home directory
+
+Unpack the file:
+
+      tar xvf lensing.tar
+
+You will then see the directory lensing/ You can rename it if you like.
+
+Change to that directory and open the makefile in a text editor. Make the 
+necessary modifications to the makefile.
+
+Build the demo program:
+
+      make lens_demo
+
+Run the demo program:
+
+      ./lens_demo
+
+This will create an image called "lens.fit". You can view this image using ds9:
+
+      ds9 lens.fit &
+
+However, this will just show us a blank image. You need to complete this 
+program by implementing the lens equation.
