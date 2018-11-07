@@ -15,9 +15,9 @@ using namespace std;
 #include "lenses.h"
 #include "arrayff.hxx"
 
-
+#define FIRST_RUN 0
 // Boundaries in physical units on the lens plane
-const float WL  = 4.0;
+const float WL  = 10.0;
 const float XL1 = -WL;
 const float XL2 =  WL;
 const float YL1 = -WL;
@@ -25,7 +25,7 @@ const float YL2 =  WL;
 
 // Source star parameters. You can adjust these if you like - it is
 // interesting to look at the different lens images that result
-const float rsrc = 0.2;      // radius
+const float rsrc = 0.1;      // radius
 const float ldc  = 0.5;      // limb darkening coefficient
 const float xsrc = 0.0;      // x and y centre on the map
 const float ysrc = 0.0;
@@ -103,7 +103,7 @@ int main(void)
 
 	//File io
 	ofstream logfile;
-	logfile.open("log.txt");
+	logfile.open("log.csv", std::ios_base::app);
 	if(!logfile.is_open()){
 		cout << "Cannot open log file for writing!" << endl;
 		exit(1);
@@ -115,7 +115,7 @@ int main(void)
 	float* xlens;
 	float* ylens;
 	float* eps;
-	const int nlenses = set_example_n(10,&xlens, &ylens, &eps);
+	const int nlenses = set_example_n(2000,&xlens, &ylens, &eps);
 	std::cout << "Simulating " << nlenses << " lens system" << std::endl;
 
 
@@ -223,8 +223,10 @@ int main(void)
 	double diff_totaltime = diffclock(clock(), totalTime);
 	std::cout << "Total Program Time = " << diff_totaltime << " ms " << std::endl;
 
-	logfile << "number of lenses, lens scale, x pixels, y pixels, Total host time,Total device time, total program time\n";
-	logfile << nlenses << "," << lens_scale << "," << npixx << "," << npixy << "," << totalHostTime << "," << deviceTime << "," << diff_totaltime <<"\n";
+#if FIRST_RUN == 1
+	logfile << "number of lenses, lens scale, number of blocks, number of threads, WL ,x pixels, y pixels, Total host time,Total device time, total program time\n";
+#endif
+	logfile << nlenses << "," << lens_scale << "," << numBlocks << "," << threadsPerBlock << "," << WL << "," << npixx << "," << npixy << "," << totalHostTime << "," << deviceTime << "," << diff_totaltime <<"\n";
 
 	// Write the lens image to a FITS formatted file. You can view this
 	// image file using ds9
