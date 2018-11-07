@@ -1,0 +1,2 @@
+number of lenses, lens scale, x pixels, y pixels, Total host time,Total device time, total program time
+10,0.005,1601,1601,22.532,3.87642,62.496
