@@ -52,36 +52,31 @@ __global__ void ray_shoot(int *maxX, int *maxY, float *lens_scale, float *xlens,
 	int y = threadBlockPos / (*maxY);
 	int x = threadBlockPos - ((*maxX) * y);
 
-	if(threadBlockPos < ((*maxX) * (*maxY))){
-		const float rsrc2 = rsrc * rsrc; 
+	const float rsrc2 = rsrc * rsrc; 
 
-		float xl = XL1 + x * (*lens_scale);
-		float yl = YL1 + y * (*lens_scale); 
-		float xs = XL2 + x * (*lens_scale); 
-		float ys = YL2 + y * (*lens_scale);
+	float xl = XL1 + x * (*lens_scale);
+	float yl = YL1 + y * (*lens_scale); 
+	float xs = XL2 + x * (*lens_scale); 
+	float ys = YL2 + y * (*lens_scale);
 
-		float dx, dy, dr;
+	float dx, dy, dr;
+	xs = xl;
+	ys = yl;
+	for(int p = 0; p < (*num_lenses); ++p){
+		dx = xl - xlens[p];
+	    dy = yl - ylens[p];
+	    dr = dx * dx + dy * dy;
+	    xs -= eps[p] * dx / dr;
+	    ys -= eps[p] * dy / dr;
+	}
 
-		xs = xl; 
-		ys = yl;
-
-		for(int p = 0; p < (*num_lenses); ++p){
-			dx = xl - xlens[p];
-		    dy = yl - ylens[p];
-		    dr = dx * dx + dy * dy;
-		    xs -= eps[p] * dx / dr;
-		    ys -= eps[p] * dy / dr;
-		}
-
-		float xd = xs - xsrc; 
-		float yd = ys - ysrc; 
-		float sep2 = xd * xd + yd * yd; 
-		
-		if(sep2 < rsrc2){
-			float mu = sqrt(1-sep2/rsrc2); 
-			dev_arr[(y*(*maxX)) + x] = (float)1.0;
-		}
-		dev_arr[(y*(*maxX)) + x] = rsrc2;
+	float xd = xs - xsrc; 
+	float yd = ys - ysrc; 
+	float sep2 = (xd * xd) + (yd * yd); 
+	
+	if(sep2 < rsrc2){
+		float mu = sqrtf(1.0f-sep2/rsrc2); 
+		dev_arr[threadBlockPos] = 1.0 - ldc * (1-mu);
 	}
 }
 
@@ -95,7 +90,7 @@ int main(void)
 	float* xlens;
 	float* ylens;
 	float* eps;
-	const int nlenses = set_example_1(&xlens, &ylens, &eps);
+	const int nlenses = set_example_2(&xlens, &ylens, &eps);
 	std::cout << "# Simulating " << nlenses << " lens system" << std::endl;
 
 
@@ -114,10 +109,12 @@ int main(void)
 
 	clock_t tstart = clock();
 
-	int total_pixels = npixx + npixy;
-		
+	int total_pixels = npixx * npixy;
+	std::cout << "total pixels: " << total_pixels << std::endl;
 	int threadsPerBlock = 1024;
+	std::cout << "total Threads per block: " << threadsPerBlock << std::endl;
 	int numBlocks = (total_pixels + threadsPerBlock - 1) / threadsPerBlock;
+	std::cout << "total blocks per grid: " << numBlocks << std::endl;
 
 	//setup the array that will be sent to device for all of the pixels and will eventually be retrieved
 	float *arr_lensim = (float*)malloc(sizeof(float)*npixx*npixy);
@@ -127,6 +124,8 @@ int main(void)
 			arr_lensim[(y * npixx) + x] = 0;
 		}
 	}
+
+	std::cout << "host----: " << eps[0] << std::endl;
 
 	//--------------------------
 	//cuda part
@@ -165,8 +164,6 @@ int main(void)
 	//=====================================
 	//Need to create a new array on both host and device memory and then copy from device the new values and then convert it back to the Array object type so that we can use dump_array();
 	
-	//mem alloc maxX and maxY and then add to the function below
-	//int maxX, int maxY, float rsrc, float ldc, float xsrc, float ysrc, float lens_scale, float *xlens, float *ylens, float*eps, int num_lenses
 	ray_shoot<<<numBlocks, threadsPerBlock>>>(dev_npixx, dev_npixy, dev_lens_scale, dev_xlens, dev_ylens, dev_eps, dev_nlenses, dev_arr_lensim);
 
 	cudaMemcpy(arr_lensim, dev_arr_lensim, sizeof(float)*npixx*npixy, cudaMemcpyDeviceToHost);
@@ -175,11 +172,9 @@ int main(void)
 	for(int y = 0; y < npixy; y++){
 		for(int x = 0; x < npixx; x++){
 			if(arr_lensim[(y*npixy)+x] != 0.0){
-				std::cout << arr_lensim[(y*npixx) + x] << " ";
-				//std::cout << (y*npixx) + x << " ";
+				lensim(y, x) = arr_lensim[(y*npixx) + x];
 			}
 		}
-		//std::cout << std::endl;
 	}
 
 	cudaFree(dev_xlens); 
@@ -193,7 +188,7 @@ int main(void)
 
 	// Write the lens image to a FITS formatted file. You can view this
 	// image file using ds9
-	dump_array<float, 2>(lensim, "lens.fit");
+	dump_array<float, 2>(lensim, "lens2.fit");
 
 	delete[] xlens;
 	delete[] ylens;

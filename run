@@ -4,3 +4,4 @@ export PATH=${CUDA_HOME}/bin:${PATH}
 
 make
 ./assignment4
+./ds9 lens2.fit
